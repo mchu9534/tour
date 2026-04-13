@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>客人接收端 - 圓形按鈕版</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; text-align: center; background: #eef2f3; padding: 20px; }
+        .box { max-width: 400px; margin: auto; background: white; padding: 25px; border-radius: 20px; }
+        .status-tag { font-size: 14px; color: #666; margin-bottom: 20px; }
+        /* 圓形按鈕樣式 */
+        .circle-btn { 
+            width: 180px; height: 180px; border-radius: 50%; border: none; 
+            background: linear-gradient(135deg, #28a745, #218838); color: white; 
+            font-size: 20px; font-weight: bold; cursor: pointer; 
+            box-shadow: 0 10px 20px rgba(40,167,69,0.3); transition: 0.3s;
+            display: flex; align-items: center; justify-content: center; margin: 20px auto;
+        }
+        .circle-btn:active { transform: scale(0.95); box-shadow: 0 5px 10px rgba(40,167,69,0.2); }
+        .circle-btn.connected { background: #6c757d; box-shadow: none; }
+        .subtitle { background: black; color: white; padding: 20px; font-size: 22px; min-height: 120px; text-align: left; border-radius: 15px; margin-top: 20px; line-height: 1.4; }
+        select { width: 100%; padding: 12px; margin: 10px 0; font-size: 16px; border-radius: 10px; border: 1px solid #ddd; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h3>🎧 旅遊翻譯聆聽</h3>
+        <div id="status" class="status-tag">請點擊下方綠色按鈕開啟連線</div>
+        
+        <label>選擇翻譯語言：</label>
+        <select id="targetLang">
+            <option value="zh-TW">廣東話 (繁體中文)</option>
+            <option value="zh-CN">普通話 (簡體中文)</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+        </select>
+
+        <button id="joinBtn" class="circle-btn">點擊開始<br>聽取講解</button>
+
+        <div id="translatedText" class="subtitle">等待導遊廣播...</div>
+    </div>
+    <audio id="remoteAudio" autoplay playsinline></audio>
+
+    <script>
+        // HTTPS 檢測
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            alert("⚠️ 安全警告：手機瀏覽器必須使用 HTTPS 才能播放語音。正在嘗試跳轉...");
+            location.replace(`https:${location.href.substring(location.protocol.length)}`);
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room');
+        const peer = new Peer();
+        const audio = document.getElementById('remoteAudio');
+
+        async function translateText(text, source, target) {
+            if (source.split('-')[0] === target.split('-')[0]) return text;
+            try {
+                const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${source}|${target}`);
+                const data = await res.json();
+                return data.responseData.translatedText;
+            } catch (e) { return text; }
+        }
+
+        document.getElementById('joinBtn').onclick = function() {
+            if(!roomId) return alert("錯誤：找不到頻道 ID，請重新掃描 QR Code");
+            
+            this.innerText = "連線中...";
+            this.classList.add('connected');
+            
+            // 激活音訊上下文 (解決手機沒聲音的關鍵)
+            audio.play(); 
+
+            const call = peer.call(roomId, new MediaStream());
+            call.on('stream', stream => {
+                audio.srcObject = stream;
+                audio.play();
+                document.getElementById('status').innerText = "🔊 語音通訊成功";
+            });
+
+            const conn = peer.connect(roomId);
+            conn.on('data', async (data) => {
+                const target = document.getElementById('targetLang').value;
+                document.getElementById('translatedText').innerText = "...翻譯中...";
+                const result = await translateText(data.text, data.lang, target);
+                document.getElementById('translatedText').innerText = result;
+            });
+
+            conn.on('open', () => {
+                document.getElementById('status').innerText = "✅ 頻道已連接";
+                this.innerText = "連線成功";
+                this.disabled = true;
+            });
+        };
+    </script>
+</body>
+</html>

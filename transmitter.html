@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>導遊發送端 - 專業版</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; text-align: center; background: #f0f2f5; padding: 20px; }
+        .box { max-width: 400px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        select, input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 10px; border: 1px solid #ddd; box-sizing: border-box; font-size: 16px; }
+        .btn-set { background: #28a745; color: white; width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 18px; cursor: pointer; }
+        .btn-start { background: #007bff; color: white; width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 18px; cursor: pointer; display: none; margin-top: 10px; }
+        #qrcode { margin: 20px auto; display: flex; justify-content: center; }
+        #transcript { background: #222; color: #0f0; padding: 15px; border-radius: 10px; text-align: left; min-height: 60px; margin-top: 15px; font-size: 14px; }
+        .alert-https { background: #ff4444; color: white; padding: 10px; display: none; border-radius: 10px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div id="httpsAlert" class="alert-https">⚠️ 請使用 HTTPS 網址，否則無法啟動語音辨識</div>
+    <div class="box">
+        <h2>🎙️ 導遊廣播系統</h2>
+        <input type="text" id="customId" placeholder="設定頻道 ID (如: TOUR123)">
+        <select id="guideLang">
+            <option value="en-US" selected>英語 (English) - Default</option>
+            <option value="zh-HK">廣東話 (Cantonese)</option>
+            <option value="zh-CN">普通話 (Mandarin)</option>
+            <option value="ja-JP">日語 (Japanese)</option>
+            <option value="ko-KR">韓語 (Korean)</option>
+        </select>
+        <button id="setBtn" class="btn-set">1. 建立頻道</button>
+        <div id="qrArea">
+            <div id="qrcode"></div>
+            <button id="startBtn" class="btn-start">2. 開始直播演講</button>
+        </div>
+        <div id="transcript">等待說話...</div>
+    </div>
+
+    <script>
+        // HTTPS 檢測與強制跳轉
+        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+            document.getElementById('httpsAlert').style.display = 'block';
+            location.replace(`https:${location.href.substring(location.protocol.length)}`);
+        }
+
+        let peer, localStream, connections = [];
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+
+        document.getElementById('setBtn').onclick = () => {
+            const id = document.getElementById('customId').value.trim();
+            if(!id) return alert("請輸入 ID");
+            peer = new Peer(id);
+            peer.on('open', (openedId) => {
+                document.getElementById('startBtn').style.display = 'block';
+                const currentPath = window.location.pathname;
+                const guestPath = currentPath.replace('transmitter.html', 'receiver.html');
+                const guestUrl = `https://${window.location.host}${guestPath}?room=${openedId}`;
+                document.getElementById('qrcode').innerHTML = "";
+                new QRCode(document.getElementById("qrcode"), { text: guestUrl, width: 200, height: 200 });
+            });
+            peer.on('connection', conn => connections.push(conn));
+            peer.on('call', call => call.answer(localStream));
+        };
+
+        document.getElementById('startBtn').onclick = async () => {
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                recognition.lang = document.getElementById('guideLang').value;
+                recognition.start();
+                document.getElementById('startBtn').innerText = "🔴 廣播中...";
+                document.getElementById('startBtn').style.background = "#dc3545";
+            } catch (err) { alert("無法取得麥克風權限，請檢查瀏覽器設定！"); }
+        };
+
+        recognition.onresult = (event) => {
+            let text = "";
+            for (let i = event.resultIndex; i < event.results.length; ++i) {
+                text += event.results[i][0].transcript;
+            }
+            document.getElementById('transcript').innerText = text;
+            connections.forEach(conn => {
+                if(conn.open) conn.send({ text: text, lang: recognition.lang });
+            });
+        };
+        recognition.onend = () => { if(localStream) recognition.start(); };
+    </script>
+</body>
+</html>
