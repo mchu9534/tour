@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>客人接收端 - 自動翻譯版</title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; background: #eef2f3; }
+        .box { max-width: 450px; margin: auto; background: white; padding: 20px; border-radius: 15px; }
+        .subtitle { background: black; color: white; padding: 20px; font-size: 24px; min-height: 150px; text-align: left; margin-top: 15px; border-radius: 10px; }
+        select { width: 100%; padding: 12px; margin: 10px 0; font-size: 16px; }
+        .btn { width: 100%; padding: 20px; background: #28a745; color: white; border: none; border-radius: 50px; font-size: 20px; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h3>🎧 領隊同步翻譯系統</h3>
+        <label>選擇您想聽/看的語言：</label>
+        <select id="targetLang">
+            <option value="zh-HK">廣東話 (繁體中文)</option>
+            <option value="zh-CN">普通話 (簡體中文)</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="ko">한국어</option>
+            <option value="vi">Tiếng Việt</option>
+        </select>
+        <button id="joinBtn" class="btn">點擊開始聽講</button>
+        <div id="status" style="font-size:12px; color:gray; margin-top:5px;"></div>
+        <div id="translatedText" class="subtitle">等待導遊說話...</div>
+    </div>
+    <audio id="remoteAudio" autoplay playsinline></audio>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        let roomId = urlParams.get('room') || localStorage.getItem('tour_id');
+        const peer = new Peer();
+
+        async function translateText(text, source, target) {
+            if (source.split('-')[0] === target.split('-')[0]) return text;
+            try {
+                // 使用免費的 Google 翻譯橋接 (MyMemory API)
+                const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${source}|${target}`);
+                const data = await res.json();
+                return data.responseData.translatedText;
+            } catch (e) { return text; }
+        }
+
+        document.getElementById('joinBtn').onclick = () => {
+            const call = peer.call(roomId, new MediaStream());
+            call.on('stream', stream => {
+                document.getElementById('remoteAudio').srcObject = stream;
+            });
+
+            const conn = peer.connect(roomId);
+            conn.on('data', async (data) => {
+                const target = document.getElementById('targetLang').value;
+                const translated = await translateText(data.text, data.lang, target);
+                document.getElementById('translatedText').innerText = translated;
+            });
+            document.getElementById('status').innerText = "連線成功，正在聆聽頻道: " + roomId;
+        };
+    </script>
+</body>
+</html>
