@@ -3,50 +3,45 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>導遊發送端 - 穩定加強版</title>
+    <title>導遊廣播端 - 最終穩定版</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     <style>
-        body { font-family: -apple-system, sans-serif; text-align: center; background: #f0f2f5; padding: 20px; }
-        .box { max-width: 400px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        select, input { width: 100%; padding: 12px; margin: 10px 0; border-radius: 10px; border: 1px solid #ddd; box-sizing: border-box; font-size: 16px; }
-        .btn-set { background: #28a745; color: white; width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 18px; cursor: pointer; }
-        .btn-start { background: #007bff; color: white; width: 100%; padding: 15px; border: none; border-radius: 10px; font-size: 18px; cursor: pointer; display: none; margin-top: 10px; }
-        #qrcode { margin: 20px auto; display: flex; justify-content: center; background: white; padding: 10px; }
-        #transcript { background: #222; color: #0f0; padding: 15px; border-radius: 10px; text-align: left; min-height: 60px; margin-top: 15px; font-size: 14px; overflow-y: auto; max-height: 150px; }
+        body { font-family: -apple-system, sans-serif; text-align: center; background: #f4f7f6; padding: 20px; }
+        .card { max-width: 400px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); }
+        input, select { width: 100%; padding: 12px; margin: 8px 0; border-radius: 10px; border: 1px solid #ddd; box-sizing: border-box; font-size: 16px; }
+        .btn-green { background: #28a745; color: white; border: none; width: 100%; padding: 15px; border-radius: 10px; font-size: 18px; cursor: pointer; }
+        .btn-blue { background: #007bff; color: white; border: none; width: 100%; padding: 15px; border-radius: 10px; font-size: 18px; cursor: pointer; display: none; margin-top: 10px; }
+        #qrcode { margin: 20px auto; display: flex; justify-content: center; }
+        #transcript { background: #222; color: #0f0; padding: 15px; border-radius: 10px; text-align: left; min-height: 80px; margin-top: 15px; font-size: 14px; }
+        #clientCount { font-size: 12px; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
-    <div class="box">
-        <h2>🎙️ 導遊廣播系統</h2>
-        <input type="text" id="customId" placeholder="設定頻道 ID (如: TOUR888)">
-        <input type="number" id="tourDays" value="10" placeholder="旅行天數">
+    <div class="card">
+        <h2>🎙️ 專業導遊廣播系統</h2>
+        <input type="text" id="customId" placeholder="設定頻道名稱 (例如: Tour888)">
+        <input type="number" id="tourDays" value="10" placeholder="有效天數">
         
         <label>導遊說話語言：</label>
         <select id="guideLang">
             <option value="en-US" selected>英語 (English)</option>
             <option value="zh-HK">廣東話 (Cantonese)</option>
             <option value="zh-CN">普通話 (Mandarin)</option>
-            <option value="ja-JP">日語 (Japanese)</option>
-            <option value="ko-KR">韓語 (Korean)</option>
         </select>
         
-        <button id="setBtn" class="btn-set">1. 建立頻道並生成碼</button>
+        <button id="setBtn" class="btn-green">1. 建立頻道並生成 QR Code</button>
         
         <div id="qrArea">
             <div id="qrcode"></div>
-            <button id="startBtn" class="btn-start">2. 開始直播講解</button>
+            <div id="clientCount">目前連線人數: 0</div>
+            <button id="startBtn" class="btn-blue">2. 開始直播演講</button>
         </div>
         
-        <div id="transcript">等待語音輸入...</div>
+        <div id="transcript">等待說話...</div>
     </div>
 
     <script>
-        // 強制 HTTPS 跳轉
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            location.replace(`https:${location.href.substring(location.protocol.length)}`);
-        }
-
         let peer, localStream, connections = [];
         const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
         recognition.continuous = true;
@@ -55,35 +50,41 @@
         document.getElementById('setBtn').onclick = () => {
             const id = document.getElementById('customId').value.trim();
             const days = document.getElementById('tourDays').value || 10;
-            if(!id) return alert("請輸入頻道 ID");
+            if(!id) return alert("請輸入頻道名稱");
 
             peer = new Peer(id);
             peer.on('open', (openedId) => {
                 document.getElementById('startBtn').style.display = 'block';
-                // 修正連結生成，包含天數參數
+                // 生成完整 URL 並帶參數
                 const guestUrl = `${window.location.origin}${window.location.pathname.replace('transmitter.html', 'receiver.html')}?room=${openedId}&days=${days}`;
                 
                 document.getElementById('qrcode').innerHTML = "";
                 new QRCode(document.getElementById("qrcode"), { text: guestUrl, width: 200, height: 200 });
-                console.log("Guest URL:", guestUrl);
             });
 
             peer.on('connection', conn => {
                 connections.push(conn);
-                conn.on('close', () => { connections = connections.filter(c => c !== conn); });
+                updateClientCount();
+                conn.on('close', () => {
+                    connections = connections.filter(c => c !== conn);
+                    updateClientCount();
+                });
             });
             peer.on('call', call => call.answer(localStream));
-            peer.on('error', err => alert("ID 可能已被佔用，請換一個名字: " + err.type));
         };
+
+        function updateClientCount() {
+            document.getElementById('clientCount').innerText = `目前連線人數: ${connections.length}`;
+        }
 
         document.getElementById('startBtn').onclick = async () => {
             try {
                 localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                 recognition.lang = document.getElementById('guideLang').value;
                 recognition.start();
-                document.getElementById('startBtn').innerText = "🔴 直播中...";
+                document.getElementById('startBtn').innerText = "🔴 直播中 (請開始說話)";
                 document.getElementById('startBtn').style.background = "#dc3545";
-            } catch (err) { alert("請確保已授權麥克風權限！"); }
+            } catch (err) { alert("請授權麥克風權限！"); }
         };
 
         recognition.onresult = (event) => {

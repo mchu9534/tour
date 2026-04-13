@@ -3,30 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>客人接收端 - 圓形加強版</title>
+    <title>客人接收端 - 強化連線版</title>
     <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
         body { font-family: -apple-system, sans-serif; text-align: center; background: #eef2f3; padding: 20px; }
-        .box { max-width: 400px; margin: auto; background: white; padding: 25px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .box { max-width: 400px; margin: auto; background: white; padding: 25px; border-radius: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        /* 圓形按鈕 */
         .circle-btn { 
             width: 180px; height: 180px; border-radius: 50%; border: none; 
             background: linear-gradient(135deg, #28a745, #218838); color: white; 
             font-size: 22px; font-weight: bold; cursor: pointer; 
             box-shadow: 0 10px 20px rgba(40,167,69,0.3); transition: 0.3s;
-            margin: 20px auto; display: flex; align-items: center; justify-content: center;
+            margin: 30px auto; display: flex; align-items: center; justify-content: center;
         }
-        .circle-btn:disabled { background: #6c757d; box-shadow: none; cursor: default; }
-        .subtitle { background: black; color: white; padding: 20px; font-size: 24px; min-height: 120px; text-align: left; border-radius: 15px; margin-top: 20px; line-height: 1.5; }
-        #status { font-size: 14px; color: #d9534f; margin-bottom: 10px; font-weight: bold; }
-        select { width: 100%; padding: 12px; margin: 10px 0; font-size: 16px; border-radius: 10px; }
+        .circle-btn:disabled { background: #6c757d; box-shadow: none; transform: scale(0.95); }
+        .subtitle { background: #1a1a1a; color: #fff; padding: 20px; font-size: 24px; min-height: 120px; text-align: left; border-radius: 15px; margin-top: 20px; line-height: 1.5; }
+        #status { font-size: 14px; margin-bottom: 10px; padding: 8px; border-radius: 8px; }
+        .connected-status { background: #d4edda; color: #155724; }
+        .waiting-status { background: #fff3cd; color: #856404; }
+        select { width: 100%; padding: 12px; border-radius: 10px; font-size: 16px; margin: 10px 0; }
     </style>
 </head>
 <body>
     <div class="box">
-        <h3>🎧 同步翻譯聆聽</h3>
-        <div id="status">❌ 未連線，請點擊按鈕</div>
+        <h3>🎧 同步翻譯講解</h3>
+        <div id="status" class="waiting-status">請點擊按鈕加入頻道</div>
         
-        <label>您的母語：</label>
+        <label>選擇翻譯目標語言：</label>
         <select id="targetLang">
             <option value="zh-TW">廣東話 (繁體)</option>
             <option value="zh-CN">普通話 (簡體)</option>
@@ -36,30 +39,26 @@
 
         <button id="joinBtn" class="circle-btn">點擊開始<br>聽取講解</button>
 
-        <div id="translatedText" class="subtitle">等待導遊廣播...</div>
+        <div id="translatedText" class="subtitle">等待廣播文字...</div>
     </div>
     <audio id="remoteAudio" autoplay playsinline></audio>
 
     <script>
-        // HTTPS 強制跳轉
-        if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
-            location.replace(`https:${location.href.substring(location.protocol.length)}`);
-        }
-
         const urlParams = new URLSearchParams(window.location.search);
         let roomId = urlParams.get('room');
-        const days = urlParams.get('days');
+        const days = urlParams.get('days') || 10;
         const audio = document.getElementById('remoteAudio');
 
-        // 記憶功能：儲存頻道
+        // 頻道記憶與有效期限
         if (roomId) {
-            localStorage.setItem('last_room', roomId);
-            if (days) localStorage.setItem('expiry', Date.now() + (days * 86400000));
+            localStorage.setItem('saved_room', roomId);
+            localStorage.setItem('saved_expiry', Date.now() + (days * 86400000));
         } else {
-            roomId = localStorage.getItem('last_room');
-            const expiry = localStorage.getItem('expiry');
-            if (!roomId || (expiry && Date.now() > expiry)) {
-                document.getElementById('status').innerText = "⚠️ 找不到頻道，請重新掃碼";
+            const savedRoom = localStorage.getItem('saved_room');
+            const expiry = localStorage.getItem('saved_expiry');
+            if (savedRoom && Date.now() < expiry) {
+                roomId = savedRoom;
+                document.getElementById('status').innerText = "已恢復歷史頻道: " + roomId;
             }
         }
 
@@ -75,26 +74,26 @@
         }
 
         document.getElementById('joinBtn').onclick = function() {
-            if (!roomId) return alert("請先掃描導遊的 QR Code！");
+            if (!roomId) return alert("錯誤：無法識別頻道 ID。請重新掃描 QR Code。");
             
-            document.getElementById('status').innerText = "⏳ 正在連線頻道: " + roomId;
-            this.innerText = "連線中...";
+            this.innerText = "正在連線...";
+            document.getElementById('status').innerText = "⏳ 正在搜尋導遊頻道...";
             
-            // 必須先播放一次空的音訊來解鎖手機限制
+            // 點擊瞬間播放空聲音，解鎖手機限制
             audio.play().catch(()=>{});
 
-            // 1. 語音連線
+            // 1. 建立語音呼叫
             const call = peer.call(roomId, new MediaStream());
             call.on('stream', stream => {
                 audio.srcObject = stream;
                 audio.play();
-                document.getElementById('status').innerText = "🔊 語音接收中";
-                document.getElementById('status').style.color = "#28a745";
+                document.getElementById('status').innerText = "✅ 語音連線成功";
+                document.getElementById('status').className = "connected-status";
                 this.innerText = "連線成功";
                 this.disabled = true;
             });
 
-            // 2. 文字連線
+            // 2. 建立文字數據連線
             const conn = peer.connect(roomId);
             conn.on('data', async (data) => {
                 const target = document.getElementById('targetLang').value;
@@ -102,8 +101,8 @@
                 document.getElementById('translatedText').innerText = result;
             });
 
-            conn.on('error', (err) => {
-                document.getElementById('status').innerText = "❌ 連線失敗，請確保導遊已啟動直播";
+            conn.on('error', () => {
+                document.getElementById('status').innerText = "❌ 無法連線，導遊可能未啟動直播";
                 this.innerText = "重試連線";
             });
         };
